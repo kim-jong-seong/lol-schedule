@@ -93,6 +93,7 @@
         .overlap-1 { background: white; color: #6c757d; }
         .overlap-0 { background: white; color: #6c757d; }
 
+        /* 툴팁 스타일 */
         .tooltip {
             position: absolute;
             background: rgba(0, 0, 0, 0.9);
@@ -372,7 +373,7 @@
         let dragMode = null;
         let startX = 0;
         let startY = 0;
-        const DRAG_THRESHOLD = 5; // 5픽셀 이상 움직여야 드래그로 인식
+        const DRAG_THRESHOLD = 5;
         
         let saveTimeout = null;
         let pendingSave = false;
@@ -384,7 +385,7 @@
 
         // Socket.IO 연결
         let socket = null;
-
+        
         // 페이지 로드 후 초기화
         window.addEventListener('load', async function() {
             console.log('페이지 로드 완료');
@@ -444,6 +445,31 @@
             }
         }
 
+        // 디바운싱된 저장 함수
+        function debouncedSaveToServer() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            
+            pendingSave = true;
+            
+            saveTimeout = setTimeout(async () => {
+                if (pendingSave) {
+                    await saveToServer();
+                    pendingSave = false;
+                }
+            }, 300);
+        }
+
+        // 즉시 저장 함수
+        async function immediateSaveToServer() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            pendingSave = false;
+            await saveToServer();
+        }
+
         // 서버에서 데이터 로드
         async function loadFromServer() {
             try {
@@ -460,7 +486,7 @@
             return false;
         }
 
-        // 임시 데이터 생성 (서버 없이 테스트용)
+        // 초기 데이터 생성
         function createInitialData() {
             scheduleData = {};
             members.forEach(member => {
@@ -475,29 +501,17 @@
             });
         }
 
-        // 데이터 로드 (임시)
+        // 데이터 로드
         async function loadData() {
             const loaded = await loadFromServer();
             if (!loaded) {
                 createInitialData();
-                await saveToServer();
+                await immediateSaveToServer();
             }
-        }
-
-        // 디바운싱된 저장 함수
-        function debouncedSave() {
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
-            }
-            
-            saveTimeout = setTimeout(async () => {
-                await saveToServer();
-                console.log('데이터 저장됨');
-            }, 300);
         }
 
         // 슬롯 토글 함수
-        function toggleSlot(slot, dateKey, hour) {
+        function toggleSlot(slot, dateKey, hour, immediate = false) {
             console.log('슬롯 토글:', dateKey, hour);
             
             const isChecked = slot.classList.contains('available');
@@ -507,7 +521,12 @@
             scheduleData[currentMember][dateKey][hour] = !isChecked;
             slot.classList.toggle('available', !isChecked);
             
-            debouncedSave();
+            if (immediate) {
+                immediateSaveToServer();
+            } else {
+                debouncedSaveToServer();
+            }
+            
             updateOverlapViewOptimized();
         }
 
@@ -566,7 +585,7 @@
             startX = e.clientX;
             startY = e.clientY;
             
-            console.log('마우스 다운:', e.target.dataset.date, e.target.dataset.hour);
+            console.log('마우스 다운');
         }
 
         function handleMouseMove(e) {
@@ -622,7 +641,15 @@
                     const dateKey = slot.dataset.date;
                     const hour = parseInt(slot.dataset.hour);
                     console.log('클릭 처리:', dateKey, hour);
-                    toggleSlot(slot, dateKey, hour);
+                    toggleSlot(slot, dateKey, hour, true);
+                }
+            } else {
+                console.log('드래그 완료');
+                if (pendingSave) {
+                    if (saveTimeout) {
+                        clearTimeout(saveTimeout);
+                    }
+                    immediateSaveToServer();
                 }
             }
             
@@ -671,7 +698,7 @@
                         slot.classList.add('available');
                     }
                     
-                    // 이벤트 리스너 등록 (중복 방지를 위해 한 번만)
+                    // 이벤트 리스너 등록
                     slot.addEventListener('mousedown', handleMouseDown);
                     slot.addEventListener('mousemove', handleMouseMove);
                     slot.addEventListener('mouseup', handleMouseUp);
@@ -787,6 +814,7 @@
                         scheduleData[currentMember][dateKey][hour] = false;
                     });
                 });
+                immediateSaveToServer();
                 createScheduleGrid();
                 updateOverlapView();
             }
