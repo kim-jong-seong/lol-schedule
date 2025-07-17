@@ -367,13 +367,10 @@
         let currentMember = '김지훈';
         let scheduleData = {};
         
-        // 개선된 드래그 관련 변수
-        let isMouseDown = false;
+        // 드래그 관련 변수 (원본 방식)
         let isDragging = false;
         let dragMode = null;
-        let startX = 0;
-        let startY = 0;
-        const DRAG_THRESHOLD = 5;
+        let dragStarted = false;
         
         let saveTimeout = null;
         let pendingSave = false;
@@ -420,6 +417,9 @@
             await loadData();
             createScheduleGrid();
             updateOverlapView();
+            
+            // 전역 이벤트 리스너 (한 번만 등록)
+            document.addEventListener('mouseup', handleMouseUp);
             
             console.log('초기화 완료');
         });
@@ -576,75 +576,70 @@
             tooltip.classList.remove('show');
         }
 
-        // 개선된 마우스 이벤트 핸들러
+        // 원본 마우스 이벤트 핸들러 (수정됨)
         function handleMouseDown(e) {
-            if (e.button !== 0) return; // 왼쪽 마우스 버튼만 처리
+            e.preventDefault();
+            console.log('=== 마우스 DOWN ===');
             
-            isMouseDown = true;
             isDragging = false;
-            startX = e.clientX;
-            startY = e.clientY;
-            
-            console.log('마우스 다운');
+            dragStarted = false;
+            dragMode = null;
         }
 
         function handleMouseMove(e) {
-            if (!isMouseDown) return;
-            
-            const deltaX = Math.abs(e.clientX - startX);
-            const deltaY = Math.abs(e.clientY - startY);
-            
-            // 임계값을 넘으면 드래그 시작
-            if (!isDragging && (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD)) {
+            if (e.buttons === 1 && !dragStarted) { // 마우스 버튼이 눌린 상태에서 움직임
+                console.log('=== 드래그 시작 ===');
                 isDragging = true;
-                console.log('드래그 시작');
+                dragStarted = true;
                 
-                // 드래그 모드 설정
-                const startSlot = document.elementFromPoint(startX, startY);
-                if (startSlot && startSlot.classList.contains('time-slot')) {
-                    const isChecked = startSlot.classList.contains('available');
+                const slot = e.target;
+                if (slot.classList.contains('time-slot')) {
+                    const isChecked = slot.classList.contains('available');
                     dragMode = isChecked ? 'deselect' : 'select';
+                    console.log('드래그 모드:', dragMode);
                     
-                    // 시작 슬롯 처리
-                    const dateKey = startSlot.dataset.date;
-                    const hour = parseInt(startSlot.dataset.hour);
-                    toggleSlot(startSlot, dateKey, hour);
+                    // 첫 번째 슬롯 처리
+                    const dateKey = slot.dataset.date;
+                    const hour = parseInt(slot.dataset.hour);
+                    toggleSlot(slot, dateKey, hour, false);
                 }
             }
-            
-            // 드래그 중일 때 현재 슬롯 처리
-            if (isDragging) {
-                const currentSlot = e.target;
-                if (currentSlot && currentSlot.classList.contains('time-slot')) {
-                    const dateKey = currentSlot.dataset.date;
-                    const hour = parseInt(currentSlot.dataset.hour);
-                    const isChecked = currentSlot.classList.contains('available');
+        }
+
+        function handleMouseEnter(e) {
+            if (isDragging && dragStarted) {
+                console.log('=== 드래그 중 ===');
+                const slot = e.target;
+                if (slot.classList.contains('time-slot')) {
+                    const dateKey = slot.dataset.date;
+                    const hour = parseInt(slot.dataset.hour);
+                    const isChecked = slot.classList.contains('available');
                     
                     if (dragMode === 'select' && !isChecked) {
-                        toggleSlot(currentSlot, dateKey, hour);
+                        toggleSlot(slot, dateKey, hour, false);
                     } else if (dragMode === 'deselect' && isChecked) {
-                        toggleSlot(currentSlot, dateKey, hour);
+                        toggleSlot(slot, dateKey, hour, false);
                     }
                 }
             }
         }
 
         function handleMouseUp(e) {
-            if (!isMouseDown) return;
+            console.log('=== 마우스 UP ===');
+            console.log('드래그 상태:', isDragging, '드래그 시작됨:', dragStarted);
             
-            console.log('마우스 업 - 드래그 상태:', isDragging);
-            
-            // 드래그하지 않았다면 클릭으로 처리
-            if (!isDragging) {
+            if (!dragStarted) {
+                // 드래그하지 않았다면 클릭으로 처리
+                console.log('=== 클릭으로 처리 ===');
                 const slot = e.target;
                 if (slot && slot.classList.contains('time-slot')) {
                     const dateKey = slot.dataset.date;
                     const hour = parseInt(slot.dataset.hour);
-                    console.log('클릭 처리:', dateKey, hour);
+                    console.log('클릭한 셀:', dateKey, hour);
                     toggleSlot(slot, dateKey, hour, true);
                 }
             } else {
-                console.log('드래그 완료');
+                console.log('=== 드래그 완료 ===');
                 if (pendingSave) {
                     if (saveTimeout) {
                         clearTimeout(saveTimeout);
@@ -654,8 +649,8 @@
             }
             
             // 상태 초기화
-            isMouseDown = false;
             isDragging = false;
+            dragStarted = false;
             dragMode = null;
         }
 
@@ -698,9 +693,10 @@
                         slot.classList.add('available');
                     }
                     
-                    // 이벤트 리스너 등록
+                    // 이벤트 리스너 등록 (원본 방식)
                     slot.addEventListener('mousedown', handleMouseDown);
                     slot.addEventListener('mousemove', handleMouseMove);
+                    slot.addEventListener('mouseenter', handleMouseEnter);
                     slot.addEventListener('mouseup', handleMouseUp);
                     
                     // 우클릭 방지
@@ -824,7 +820,7 @@
         window.debugInfo = function() {
             console.log('현재 멤버:', currentMember);
             console.log('스케줄 데이터:', scheduleData);
-            console.log('마우스 상태:', { isMouseDown, isDragging, dragMode });
+            console.log('마우스 상태:', { isDragging, dragStarted, dragMode });
         };
     </script>
 </body>
