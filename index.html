@@ -87,10 +87,10 @@
         }
 
         .overlap-5 { background: #28a745; color: white; }
-        .overlap-4 { background: #ffc107; color: #212529; }
-        .overlap-3 { background: #17a2b8; color: white; }
-        .overlap-2 { background: #fd7e14; color: white; }
-        .overlap-1 { background: #6c757d; color: white; }
+        .overlap-4 { background: white; color: #6c757d; }
+        .overlap-3 { background: white; color: #6c757d; }
+        .overlap-2 { background: white; color: #6c757d; }
+        .overlap-1 { background: white; color: #6c757d; }
         .overlap-0 { background: white; color: #6c757d; }
 
         .tooltip {
@@ -328,6 +328,7 @@
         <div id="tooltipContent"></div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
     <script>
         const members = ['김지훈', '김승진', '이성규', '조영인', '김종성'];
         
@@ -381,6 +382,9 @@
         let tooltip = null;
         let tooltipContent = null;
 
+        // Socket.IO 연결
+        let socket = null;
+
         // 페이지 로드 후 초기화
         window.addEventListener('load', async function() {
             console.log('페이지 로드 완료');
@@ -389,12 +393,72 @@
             tooltip = document.getElementById('tooltip');
             tooltipContent = document.getElementById('tooltipContent');
             
+            try {
+                socket = io();
+                console.log('Socket.IO 연결 시도');
+                
+                socket.on('connect', () => {
+                    console.log('✅ Socket.IO 연결됨! ID:', socket.id);
+                });
+                
+                socket.on('disconnect', () => {
+                    console.log('❌ Socket.IO 연결 해제됨');
+                });
+                
+                socket.on('scheduleUpdated', (newScheduleData) => {
+                    console.log('실시간 업데이트 수신');
+                    scheduleData = newScheduleData;
+                    createScheduleGrid();
+                    updateOverlapView();
+                });
+                
+            } catch (error) {
+                console.log('❌ Socket.IO 연결 실패:', error);
+            }
+            
             await loadData();
             createScheduleGrid();
             updateOverlapView();
             
             console.log('초기화 완료');
         });
+
+        // 서버 저장 함수
+        async function saveToServer() {
+            try {
+                const response = await fetch('/api/schedule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(scheduleData)
+                });
+                
+                if (response.ok) {
+                    console.log('서버에 저장됨');
+                } else {
+                    console.log('저장 실패:', response.status);
+                }
+            } catch (error) {
+                console.log('저장 실패:', error);
+            }
+        }
+
+        // 서버에서 데이터 로드
+        async function loadFromServer() {
+            try {
+                const response = await fetch('/api/schedule');
+                if (response.ok) {
+                    const data = await response.json();
+                    scheduleData = data;
+                    console.log('서버에서 데이터 로드됨');
+                    return true;
+                }
+            } catch (error) {
+                console.log('로드 실패:', error);
+            }
+            return false;
+        }
 
         // 임시 데이터 생성 (서버 없이 테스트용)
         function createInitialData() {
@@ -413,7 +477,11 @@
 
         // 데이터 로드 (임시)
         async function loadData() {
-            createInitialData();
+            const loaded = await loadFromServer();
+            if (!loaded) {
+                createInitialData();
+                await saveToServer();
+            }
         }
 
         // 디바운싱된 저장 함수
@@ -422,7 +490,8 @@
                 clearTimeout(saveTimeout);
             }
             
-            saveTimeout = setTimeout(() => {
+            saveTimeout = setTimeout(async () => {
+                await saveToServer();
                 console.log('데이터 저장됨');
             }, 300);
         }
