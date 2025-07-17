@@ -415,7 +415,7 @@
             console.log('초기화 완료');
         });
 
-        // 임시 데이터 생성 (서버 없이 테스트용)
+        // 초기 빈 데이터 생성
         function createInitialData() {
             scheduleData = {};
             members.forEach(member => {
@@ -424,13 +424,13 @@
                     const dateKey = formatDate(date);
                     scheduleData[member][dateKey] = {};
                     hours.forEach(hour => {
-                        scheduleData[member][dateKey][hour] = Math.random() > 0.7; // 테스트용 랜덤 데이터
+                        scheduleData[member][dateKey][hour] = false; // 모든 시간 비어있음
                     });
                 });
             });
         }
 
-        // 데이터 로드 (임시)
+        // 데이터 로드
         async function loadData() {
             createInitialData();
         }
