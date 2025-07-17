@@ -30,6 +30,11 @@ app.use((req, res, next) => {
     next();
 });
 
+// 파일 쓰기 최적화를 위한 변수들
+let writeTimeout = null;
+let pendingData = null;
+let memoryData = null; // 메모리 캐시
+
 // 초기 데이터 생성
 function createInitialData() {
     const members = ['김지훈', '김승진', '이성규', '조영인', '김종성'];
@@ -55,37 +60,74 @@ async function initializeDataFile() {
     try {
         await fs.access(DATA_FILE);
         console.log('✅ schedule-data.json 파일이 존재합니다.');
+        // 파일에서 메모리로 로드
+        const data = await fs.readFile(DATA_FILE, 'utf8');
+        memoryData = JSON.parse(data);
     } catch (error) {
         console.log('📝 schedule-data.json 파일을 새로 생성합니다.');
         const initialData = createInitialData();
+        memoryData = initialData;
         await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
         console.log('✅ schedule-data.json 파일이 생성되었습니다.');
     }
 }
 
-// API: 데이터 로드
+// 디바운싱된 파일 쓰기 함수
+async function debouncedWriteToFile() {
+    if (writeTimeout) {
+        clearTimeout(writeTimeout);
+    }
+    
+    writeTimeout = setTimeout(async () => {
+        try {
+            if (pendingData) {
+                await fs.writeFile(DATA_FILE, JSON.stringify(pendingData, null, 2));
+                console.log('💾 스케줄 데이터가 파일에 저장되었습니다.');
+                pendingData = null;
+            }
+        } catch (error) {
+            console.error('❌ 파일 저장 실패:', error);
+        }
+    }, 500); // 500ms 디바운싱
+}
+
+// API: 데이터 로드 (메모리에서)
 app.get('/api/schedule', async (req, res) => {
     try {
-        const data = await fs.readFile(DATA_FILE, 'utf8');
-        res.json(JSON.parse(data));
+        // 메모리에서 즉시 반환
+        if (memoryData) {
+            res.json(memoryData);
+        } else {
+            // 메모리에 없으면 파일에서 로드
+            const data = await fs.readFile(DATA_FILE, 'utf8');
+            memoryData = JSON.parse(data);
+            res.json(memoryData);
+        }
     } catch (error) {
         console.error('❌ 데이터 읽기 실패:', error);
         res.status(500).json({ error: '데이터 읽기 실패' });
     }
 });
 
-// API: 데이터 저장
+// API: 데이터 저장 (최적화됨)
 app.post('/api/schedule', async (req, res) => {
     try {
         const scheduleData = req.body;
-        await fs.writeFile(DATA_FILE, JSON.stringify(scheduleData, null, 2));
-        console.log('💾 스케줄 데이터가 저장되었습니다.');
         
-        // 모든 클라이언트에게 실시간 전송
+        // 메모리에 즉시 저장
+        memoryData = scheduleData;
+        pendingData = scheduleData;
+        
+        // 즉시 응답 (클라이언트 대기시간 단축)
+        res.json({ success: true });
+        
+        // 비동기적으로 파일 저장 (디바운싱)
+        debouncedWriteToFile();
+        
+        // 실시간 업데이트는 제한적으로 전송 (성능 최적화)
         io.emit('scheduleUpdated', scheduleData);
         console.log('📡 실시간 업데이트 전송됨');
         
-        res.json({ success: true });
     } catch (error) {
         console.error('❌ 데이터 저장 실패:', error);
         res.status(500).json({ error: '데이터 저장 실패' });
@@ -111,4 +153,22 @@ server.listen(PORT, async () => {
     await initializeDataFile();
     console.log(`🚀 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
     console.log('⚡ 실시간 동기화가 활성화되었습니다.');
+    console.log('🔧 성능 최적화가 적용되었습니다.');
+});
+
+// 서버 종료 시 마지막 저장
+process.on('SIGINT', async () => {
+    console.log('\n🛑 서버 종료 중...');
+    
+    // 대기 중인 데이터가 있으면 즉시 저장
+    if (pendingData) {
+        try {
+            await fs.writeFile(DATA_FILE, JSON.stringify(pendingData, null, 2));
+            console.log('💾 마지막 데이터 저장 완료');
+        } catch (error) {
+            console.error('❌ 마지막 저장 실패:', error);
+        }
+    }
+    
+    process.exit(0);
 });
