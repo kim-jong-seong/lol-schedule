@@ -94,50 +94,69 @@
         .overlap-0 { background: white; color: #6c757d; }
 
         .tooltip {
-            position: absolute;
+            position: fixed;
             background: rgba(0, 0, 0, 0.9);
             color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.85em;
-            z-index: 1000;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            z-index: 10000;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.2s ease;
-            max-width: 200px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 250px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
             white-space: nowrap;
+            transform: translateX(-50%);
         }
 
         .tooltip.show {
             opacity: 1;
         }
 
-        .tooltip::before {
+        .tooltip::after {
             content: '';
             position: absolute;
             top: 100%;
             left: 50%;
             transform: translateX(-50%);
-            border: 5px solid transparent;
+            border: 6px solid transparent;
             border-top-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .tooltip.above::after {
+            top: auto;
+            bottom: 100%;
+            border-top-color: transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .tooltip-header {
+            font-weight: bold;
+            margin-bottom: 6px;
+            color: #ffd700;
         }
 
         .available-members {
             margin: 0;
             padding: 0;
             list-style: none;
+            white-space: normal;
         }
 
         .available-members li {
-            margin: 2px 0;
+            margin: 3px 0;
             padding: 2px 0;
+            display: flex;
+            align-items: center;
         }
 
         .available-members li:before {
             content: '✓ ';
             color: #4caf50;
             font-weight: bold;
+            margin-right: 4px;
+            flex-shrink: 0;
         }
 
         .member-selector {
@@ -328,7 +347,6 @@
         <div id="tooltipContent"></div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
     <script>
         const members = ['김지훈', '김승진', '이성규', '조영인', '김종성'];
         
@@ -382,9 +400,6 @@
         let tooltip = null;
         let tooltipContent = null;
 
-        // Socket.IO 연결
-        let socket = null;
-
         // 페이지 로드 후 초기화
         window.addEventListener('load', async function() {
             console.log('페이지 로드 완료');
@@ -393,72 +408,12 @@
             tooltip = document.getElementById('tooltip');
             tooltipContent = document.getElementById('tooltipContent');
             
-            try {
-                socket = io();
-                console.log('Socket.IO 연결 시도');
-                
-                socket.on('connect', () => {
-                    console.log('✅ Socket.IO 연결됨! ID:', socket.id);
-                });
-                
-                socket.on('disconnect', () => {
-                    console.log('❌ Socket.IO 연결 해제됨');
-                });
-                
-                socket.on('scheduleUpdated', (newScheduleData) => {
-                    console.log('실시간 업데이트 수신');
-                    scheduleData = newScheduleData;
-                    createScheduleGrid();
-                    updateOverlapView();
-                });
-                
-            } catch (error) {
-                console.log('❌ Socket.IO 연결 실패:', error);
-            }
-            
             await loadData();
             createScheduleGrid();
             updateOverlapView();
             
             console.log('초기화 완료');
         });
-
-        // 서버 저장 함수
-        async function saveToServer() {
-            try {
-                const response = await fetch('/api/schedule', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(scheduleData)
-                });
-                
-                if (response.ok) {
-                    console.log('서버에 저장됨');
-                } else {
-                    console.log('저장 실패:', response.status);
-                }
-            } catch (error) {
-                console.log('저장 실패:', error);
-            }
-        }
-
-        // 서버에서 데이터 로드
-        async function loadFromServer() {
-            try {
-                const response = await fetch('/api/schedule');
-                if (response.ok) {
-                    const data = await response.json();
-                    scheduleData = data;
-                    console.log('서버에서 데이터 로드됨');
-                    return true;
-                }
-            } catch (error) {
-                console.log('로드 실패:', error);
-            }
-            return false;
-        }
 
         // 임시 데이터 생성 (서버 없이 테스트용)
         function createInitialData() {
@@ -469,7 +424,7 @@
                     const dateKey = formatDate(date);
                     scheduleData[member][dateKey] = {};
                     hours.forEach(hour => {
-                        scheduleData[member][dateKey][hour] = false;
+                        scheduleData[member][dateKey][hour] = Math.random() > 0.7; // 테스트용 랜덤 데이터
                     });
                 });
             });
@@ -477,23 +432,7 @@
 
         // 데이터 로드 (임시)
         async function loadData() {
-            const loaded = await loadFromServer();
-            if (!loaded) {
-                createInitialData();
-                await saveToServer();
-            }
-        }
-
-        // 디바운싱된 저장 함수
-        function debouncedSave() {
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
-            }
-            
-            saveTimeout = setTimeout(async () => {
-                await saveToServer();
-                console.log('데이터 저장됨');
-            }, 300);
+            createInitialData();
         }
 
         // 슬롯 토글 함수
@@ -507,7 +446,6 @@
             scheduleData[currentMember][dateKey][hour] = !isChecked;
             slot.classList.toggle('available', !isChecked);
             
-            debouncedSave();
             updateOverlapViewOptimized();
         }
 
@@ -522,7 +460,7 @@
             }, 100);
         }
 
-        // 툴팁 표시 함수
+        // 개선된 툴팁 표시 함수
         function showTooltip(e, availableMembers, dateKey, hour) {
             if (availableMembers.length === 0) {
                 hideTooltip();
@@ -531,30 +469,65 @@
             
             const memberList = availableMembers.map(member => `<li>${member}</li>`).join('');
             tooltipContent.innerHTML = `
-                <div style="margin-bottom: 4px; font-weight: bold;">${dateKey} ${hour}시</div>
+                <div class="tooltip-header">${dateKey} ${hour}시</div>
                 <ul class="available-members">${memberList}</ul>
             `;
             
+            // 타겟 요소의 위치 계산
             const rect = e.target.getBoundingClientRect();
-            let left = rect.left + (rect.width / 2) - 100;
-            let top = rect.top - 80;
+            const tooltipRect = tooltip.getBoundingClientRect();
             
-            if (left < 10) left = 10;
-            if (left + 200 > window.innerWidth - 10) {
-                left = window.innerWidth - 210;
+            // 뷰포트 크기
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // 기본 위치: 요소 위쪽 중앙
+            let left = rect.left + (rect.width / 2);
+            let top = rect.top - 10; // 요소 위쪽에 10px 간격
+            
+            // 툴팁을 임시로 표시해서 크기 측정
+            tooltip.style.opacity = '0';
+            tooltip.style.display = 'block';
+            tooltip.classList.remove('above');
+            
+            const tempRect = tooltip.getBoundingClientRect();
+            const tooltipWidth = tempRect.width;
+            const tooltipHeight = tempRect.height;
+            
+            // 수평 위치 조정
+            if (left - tooltipWidth/2 < 10) {
+                // 왼쪽 끝에 닿으면 왼쪽 정렬
+                left = 10 + tooltipWidth/2;
+            } else if (left + tooltipWidth/2 > viewportWidth - 10) {
+                // 오른쪽 끝에 닿으면 오른쪽 정렬
+                left = viewportWidth - 10 - tooltipWidth/2;
             }
-            if (top < 10) {
+            
+            // 수직 위치 조정
+            if (top - tooltipHeight < 10) {
+                // 위쪽 공간이 부족하면 아래쪽에 표시
                 top = rect.bottom + 10;
+                tooltip.classList.add('above');
+            } else {
+                // 위쪽에 표시
+                top = top - tooltipHeight;
             }
             
+            // 최종 위치 설정
             tooltip.style.left = left + 'px';
             tooltip.style.top = top + 'px';
+            tooltip.style.opacity = '1';
             tooltip.classList.add('show');
         }
 
         // 툴팁 숨기기 함수
         function hideTooltip() {
             tooltip.classList.remove('show');
+            setTimeout(() => {
+                if (!tooltip.classList.contains('show')) {
+                    tooltip.style.display = 'none';
+                }
+            }, 200);
         }
 
         // 개선된 마우스 이벤트 핸들러
@@ -671,7 +644,7 @@
                         slot.classList.add('available');
                     }
                     
-                    // 이벤트 리스너 등록 (중복 방지를 위해 한 번만)
+                    // 이벤트 리스너 등록
                     slot.addEventListener('mousedown', handleMouseDown);
                     slot.addEventListener('mousemove', handleMouseMove);
                     slot.addEventListener('mouseup', handleMouseUp);
@@ -748,6 +721,13 @@
                         slot.addEventListener('mouseleave', function() {
                             hideTooltip();
                         });
+                        
+                        // 마우스 이동 시 툴팁 위치 업데이트
+                        slot.addEventListener('mousemove', function(e) {
+                            if (tooltip.classList.contains('show')) {
+                                showTooltip(e, availableMembers, dateKey, hour);
+                            }
+                        });
                     }
                     
                     overlapGrid.appendChild(slot);
@@ -791,6 +771,10 @@
                 updateOverlapView();
             }
         }
+
+        // 전역 이벤트 리스너로 툴팁 숨기기
+        document.addEventListener('scroll', hideTooltip);
+        window.addEventListener('resize', hideTooltip);
 
         // 디버깅용
         window.debugInfo = function() {
