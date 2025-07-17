@@ -83,15 +83,16 @@
             justify-content: center;
             font-size: 0.9em;
             font-weight: 600;
+            position: relative;
         }
 
         .overlap-5 { background: #28a745; color: white; }
-        .overlap-4 { background: white; color: #6c757d; }
-        .overlap-3 { background: white; color: #6c757d; }
-        .overlap-2 { background: white; color: #6c757d; }
-        .overlap-1 { background: white; color: #6c757d; }
+        .overlap-4 { background: #ffc107; color: #212529; }
+        .overlap-3 { background: #17a2b8; color: white; }
+        .overlap-2 { background: #fd7e14; color: white; }
+        .overlap-1 { background: #6c757d; color: white; }
+        .overlap-0 { background: white; color: #6c757d; }
 
-        /* 툴팁 스타일 */
         .tooltip {
             position: absolute;
             background: rgba(0, 0, 0, 0.9);
@@ -105,6 +106,7 @@
             transition: opacity 0.2s ease;
             max-width: 200px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            white-space: nowrap;
         }
 
         .tooltip.show {
@@ -136,10 +138,6 @@
             content: '✓ ';
             color: #4caf50;
             font-weight: bold;
-        }
-
-        .overlap-slot {
-            position: relative;
         }
 
         .member-selector {
@@ -233,16 +231,17 @@
             position: relative;
             min-height: 35px;
             user-select: none;
-            touch-action: none;
         }
 
         .time-slot:hover {
             background: #f8f9ff;
+            transform: scale(1.05);
         }
 
         .time-slot.available {
             background: #d4edda;
             color: #155724;
+            font-weight: bold;
         }
 
         .time-slot.available:hover {
@@ -275,21 +274,6 @@
         .btn-secondary:hover {
             background: #5a6268;
             transform: translateY(-2px);
-        }
-
-        @media (max-width: 768px) {
-            .schedule-grid {
-                font-size: 0.8em;
-            }
-            
-            .member-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .member-btn {
-                width: 200px;
-            }
         }
     </style>
 </head>
@@ -344,7 +328,6 @@
         <div id="tooltipContent"></div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
     <script>
         const members = ['김지훈', '김승진', '이성규', '조영인', '김종성'];
         
@@ -382,128 +365,38 @@
         let currentMember = '김지훈';
         let scheduleData = {};
         
-        // 최적화된 드래그 관련 변수
+        // 개선된 드래그 관련 변수
+        let isMouseDown = false;
         let isDragging = false;
         let dragMode = null;
-        let lastProcessedCell = null;
-        let saveTimeout = null; // 디바운싱용
-        let pendingSave = false; // 저장 대기 상태
-        let overlapUpdateTimeout = null; // UI 업데이트 쓰로틀링용
+        let startX = 0;
+        let startY = 0;
+        const DRAG_THRESHOLD = 5; // 5픽셀 이상 움직여야 드래그로 인식
+        
+        let saveTimeout = null;
+        let pendingSave = false;
+        let overlapUpdateTimeout = null;
 
         // 툴팁 관련 변수
         let tooltip = null;
         let tooltipContent = null;
 
-        // Socket.IO 연결
-        let socket = null;
-        
-        // 페이지 로드 후 Socket.IO 초기화
+        // 페이지 로드 후 초기화
         window.addEventListener('load', async function() {
+            console.log('페이지 로드 완료');
+            
             // 툴팁 요소 초기화
             tooltip = document.getElementById('tooltip');
             tooltipContent = document.getElementById('tooltipContent');
             
-            try {
-                socket = io();
-                console.log('Socket.IO 연결 시도');
-                
-                // 연결 이벤트
-                socket.on('connect', () => {
-                    console.log('✅ Socket.IO 연결됨! ID:', socket.id);
-                });
-                
-                socket.on('disconnect', () => {
-                    console.log('❌ Socket.IO 연결 해제됨');
-                });
-                
-                // 실시간 업데이트 수신
-                socket.on('scheduleUpdated', (newScheduleData) => {
-                    scheduleData = newScheduleData;
-                    createScheduleGrid();
-                    updateOverlapView();
-                    console.log('🔄 실시간으로 스케줄이 업데이트되었습니다!');
-                });
-                
-            } catch (error) {
-                console.log('❌ Socket.IO 연결 실패:', error);
-            }
-            
             await loadData();
             createScheduleGrid();
             updateOverlapView();
+            
+            console.log('초기화 완료');
         });
 
-        // 최적화된 서버 저장 함수
-        async function saveToServer() {
-            try {
-                // 간단한 타임아웃 처리로 변경 (AbortController 대신)
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Request timeout')), 5000);
-                });
-                
-                const fetchPromise = fetch('/api/schedule', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(scheduleData)
-                });
-                
-                await Promise.race([fetchPromise, timeoutPromise]);
-                console.log('서버에 저장됨');
-            } catch (error) {
-                if (error.message === 'Request timeout') {
-                    console.log('저장 시간 초과');
-                } else {
-                    console.log('저장 실패:', error);
-                }
-            }
-        }
-
-        // 디바운싱된 저장 함수 (성능 최적화)
-        function debouncedSaveToServer() {
-            // 기존 타이머 취소
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
-            }
-            
-            pendingSave = true;
-            
-            // 300ms 후에 저장 (드래그 완료 후)
-            saveTimeout = setTimeout(async () => {
-                if (pendingSave) {
-                    await saveToServer();
-                    pendingSave = false;
-                }
-            }, 300);
-        }
-
-        // 즉시 저장 함수 (클릭용)
-        async function immediateSaveToServer() {
-            if (saveTimeout) {
-                clearTimeout(saveTimeout);
-            }
-            pendingSave = false;
-            await saveToServer();
-        }
-
-        // 서버에서 데이터 로드
-        async function loadFromServer() {
-            try {
-                const response = await fetch('/api/schedule');
-                if (response.ok) {
-                    const data = await response.json();
-                    scheduleData = data;
-                    console.log('서버에서 데이터 로드됨');
-                    return true;
-                }
-            } catch (error) {
-                console.log('로드 실패:', error);
-            }
-            return false;
-        }
-
-        // 초기 데이터 생성
+        // 임시 데이터 생성 (서버 없이 테스트용)
         function createInitialData() {
             scheduleData = {};
             members.forEach(member => {
@@ -518,17 +411,26 @@
             });
         }
 
-        // 데이터 로드
+        // 데이터 로드 (임시)
         async function loadData() {
-            const loaded = await loadFromServer();
-            if (!loaded) {
-                createInitialData();
-                await immediateSaveToServer();
-            }
+            createInitialData();
         }
 
-        // 최적화된 슬롯 토글 함수
-        function toggleSlot(slot, dateKey, hour, immediate = false) {
+        // 디바운싱된 저장 함수
+        function debouncedSave() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            
+            saveTimeout = setTimeout(() => {
+                console.log('데이터 저장됨');
+            }, 300);
+        }
+
+        // 슬롯 토글 함수
+        function toggleSlot(slot, dateKey, hour) {
+            console.log('슬롯 토글:', dateKey, hour);
+            
             const isChecked = slot.classList.contains('available');
             if (!scheduleData[currentMember][dateKey]) {
                 scheduleData[currentMember][dateKey] = {};
@@ -536,19 +438,11 @@
             scheduleData[currentMember][dateKey][hour] = !isChecked;
             slot.classList.toggle('available', !isChecked);
             
-            // 즉시 저장이 필요한 경우 (단일 클릭)
-            if (immediate) {
-                immediateSaveToServer();
-            } else {
-                // 드래그 중에는 디바운싱된 저장
-                debouncedSaveToServer();
-            }
-            
-            // UI 업데이트는 즉시 (저장과 분리)
+            debouncedSave();
             updateOverlapViewOptimized();
         }
 
-        // 최적화된 겹치는 시간 뷰 업데이트 (쓰로틀링)
+        // 최적화된 겹치는 시간 뷰 업데이트
         function updateOverlapViewOptimized() {
             if (overlapUpdateTimeout) {
                 clearTimeout(overlapUpdateTimeout);
@@ -556,7 +450,7 @@
             
             overlapUpdateTimeout = setTimeout(() => {
                 updateOverlapView();
-            }, 100); // 100ms 디바운싱
+            }, 100);
         }
 
         // 툴팁 표시 함수
@@ -572,17 +466,13 @@
                 <ul class="available-members">${memberList}</ul>
             `;
             
-            // 툴팁 위치 계산
             const rect = e.target.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
+            let left = rect.left + (rect.width / 2) - 100;
+            let top = rect.top - 80;
             
-            let left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
-            let top = rect.top - tooltip.offsetHeight - 10;
-            
-            // 화면 경계 체크
             if (left < 10) left = 10;
-            if (left + tooltip.offsetWidth > window.innerWidth - 10) {
-                left = window.innerWidth - tooltip.offsetWidth - 10;
+            if (left + 200 > window.innerWidth - 10) {
+                left = window.innerWidth - 210;
             }
             if (top < 10) {
                 top = rect.bottom + 10;
@@ -598,131 +488,87 @@
             tooltip.classList.remove('show');
         }
 
-        // 마우스 다운 핸들러 (최적화)
+        // 개선된 마우스 이벤트 핸들러
         function handleMouseDown(e) {
-            e.preventDefault();
-            e.stopPropagation();
+            if (e.button !== 0) return; // 왼쪽 마우스 버튼만 처리
             
-            isDragging = true;
-            const slot = e.target;
-            const dateKey = slot.dataset.date;
-            const hour = parseInt(slot.dataset.hour);
+            isMouseDown = true;
+            isDragging = false;
+            startX = e.clientX;
+            startY = e.clientY;
             
-            const isChecked = slot.classList.contains('available');
-            dragMode = isChecked ? 'deselect' : 'select';
-            lastProcessedCell = `${dateKey}-${hour}`;
-            
-            // 드래그 시작 시에는 디바운싱된 저장
-            toggleSlot(slot, dateKey, hour, false);
+            console.log('마우스 다운:', e.target.dataset.date, e.target.dataset.hour);
         }
 
-        // 마우스 엔터 핸들러 (최적화)
-        function handleMouseEnter(e) {
-            if (!isDragging) return;
+        function handleMouseMove(e) {
+            if (!isMouseDown) return;
             
-            const slot = e.target;
-            if (!slot.classList.contains('time-slot')) return;
+            const deltaX = Math.abs(e.clientX - startX);
+            const deltaY = Math.abs(e.clientY - startY);
             
-            const dateKey = slot.dataset.date;
-            const hour = parseInt(slot.dataset.hour);
-            const cellKey = `${dateKey}-${hour}`;
+            // 임계값을 넘으면 드래그 시작
+            if (!isDragging && (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD)) {
+                isDragging = true;
+                console.log('드래그 시작');
+                
+                // 드래그 모드 설정
+                const startSlot = document.elementFromPoint(startX, startY);
+                if (startSlot && startSlot.classList.contains('time-slot')) {
+                    const isChecked = startSlot.classList.contains('available');
+                    dragMode = isChecked ? 'deselect' : 'select';
+                    
+                    // 시작 슬롯 처리
+                    const dateKey = startSlot.dataset.date;
+                    const hour = parseInt(startSlot.dataset.hour);
+                    toggleSlot(startSlot, dateKey, hour);
+                }
+            }
             
-            if (lastProcessedCell === cellKey) return;
-            lastProcessedCell = cellKey;
-            
-            const isChecked = slot.classList.contains('available');
-            
-            if (dragMode === 'select' && !isChecked) {
-                toggleSlot(slot, dateKey, hour, false);
-            } else if (dragMode === 'deselect' && isChecked) {
-                toggleSlot(slot, dateKey, hour, false);
+            // 드래그 중일 때 현재 슬롯 처리
+            if (isDragging) {
+                const currentSlot = e.target;
+                if (currentSlot && currentSlot.classList.contains('time-slot')) {
+                    const dateKey = currentSlot.dataset.date;
+                    const hour = parseInt(currentSlot.dataset.hour);
+                    const isChecked = currentSlot.classList.contains('available');
+                    
+                    if (dragMode === 'select' && !isChecked) {
+                        toggleSlot(currentSlot, dateKey, hour);
+                    } else if (dragMode === 'deselect' && isChecked) {
+                        toggleSlot(currentSlot, dateKey, hour);
+                    }
+                }
             }
         }
 
-        // 마우스 업 핸들러 (최적화)
         function handleMouseUp(e) {
-            if (isDragging) {
-                isDragging = false;
-                dragMode = null;
-                lastProcessedCell = null;
-                
-                // 드래그 완료 시 즉시 저장
-                if (pendingSave) {
-                    if (saveTimeout) {
-                        clearTimeout(saveTimeout);
-                    }
-                    immediateSaveToServer();
+            if (!isMouseDown) return;
+            
+            console.log('마우스 업 - 드래그 상태:', isDragging);
+            
+            // 드래그하지 않았다면 클릭으로 처리
+            if (!isDragging) {
+                const slot = e.target;
+                if (slot && slot.classList.contains('time-slot')) {
+                    const dateKey = slot.dataset.date;
+                    const hour = parseInt(slot.dataset.hour);
+                    console.log('클릭 처리:', dateKey, hour);
+                    toggleSlot(slot, dateKey, hour);
                 }
             }
-        }
-
-        // 터치 시작 핸들러 (모바일 지원)
-        function handleTouchStart(e) {
-            e.preventDefault();
             
-            const touch = e.touches[0];
-            const slot = e.target;
-            
-            isDragging = true;
-            const dateKey = slot.dataset.date;
-            const hour = parseInt(slot.dataset.hour);
-            
-            const isChecked = slot.classList.contains('available');
-            dragMode = isChecked ? 'deselect' : 'select';
-            lastProcessedCell = `${dateKey}-${hour}`;
-            
-            toggleSlot(slot, dateKey, hour, false);
-        }
-
-        // 터치 이동 핸들러
-        function handleTouchMove(e) {
-            e.preventDefault();
-            
-            if (!isDragging) return;
-            
-            const touch = e.touches[0];
-            const element = document.elementFromPoint(touch.clientX, touch.clientY);
-            
-            if (element && element.classList.contains('time-slot')) {
-                const dateKey = element.dataset.date;
-                const hour = parseInt(element.dataset.hour);
-                const cellKey = `${dateKey}-${hour}`;
-                
-                if (lastProcessedCell === cellKey) return;
-                lastProcessedCell = cellKey;
-                
-                const isChecked = element.classList.contains('available');
-                
-                if (dragMode === 'select' && !isChecked) {
-                    toggleSlot(element, dateKey, hour, false);
-                } else if (dragMode === 'deselect' && isChecked) {
-                    toggleSlot(element, dateKey, hour, false);
-                }
-            }
-        }
-
-        // 터치 종료 핸들러
-        function handleTouchEnd(e) {
-            if (isDragging) {
-                isDragging = false;
-                dragMode = null;
-                lastProcessedCell = null;
-                
-                // 터치 완료 시 즉시 저장
-                if (pendingSave) {
-                    if (saveTimeout) {
-                        clearTimeout(saveTimeout);
-                    }
-                    immediateSaveToServer();
-                }
-            }
+            // 상태 초기화
+            isMouseDown = false;
+            isDragging = false;
+            dragMode = null;
         }
 
         // 스케줄 그리드 생성
         function createScheduleGrid() {
+            console.log('스케줄 그리드 생성');
             const grid = document.getElementById('scheduleGrid');
             
-            // 기존 시간 슬롯들 제거 (헤더는 유지)
+            // 기존 슬롯들 제거
             const existingSlots = grid.querySelectorAll('.time-slot, .time-label:not(:first-child), .day-header:not(:first-child)');
             existingSlots.forEach(slot => slot.remove());
             
@@ -738,7 +584,7 @@
             dateRange.forEach(date => {
                 const dateKey = formatDate(date);
                 
-                // 날짜 라벨 (요일 포함)
+                // 날짜 라벨
                 const dayLabel = document.createElement('div');
                 dayLabel.className = 'day-header';
                 dayLabel.textContent = `${dateKey}(${getDayOfWeek(date)})`;
@@ -756,39 +602,24 @@
                         slot.classList.add('available');
                     }
                     
-                    // 최적화된 클릭 이벤트
-                    slot.addEventListener('click', function(e) {
-                        if (!isDragging) {  // 드래그 중이 아닐 때만 클릭 처리
-                            toggleSlot(slot, dateKey, hour, true); // 즉시 저장
-                        }
+                    // 이벤트 리스너 등록 (중복 방지를 위해 한 번만)
+                    slot.addEventListener('mousedown', handleMouseDown);
+                    slot.addEventListener('mousemove', handleMouseMove);
+                    slot.addEventListener('mouseup', handleMouseUp);
+                    
+                    // 우클릭 방지
+                    slot.addEventListener('contextmenu', function(e) {
+                        e.preventDefault();
                     });
                     
-                    // 마우스 이벤트들
-                    slot.addEventListener('mousedown', handleMouseDown);
-                    slot.addEventListener('mouseenter', handleMouseEnter);
-                    slot.addEventListener('mouseover', handleMouseEnter); // 추가: mouseover도 처리
-                    
-                    // 터치 이벤트 추가 (모바일 지원)
-                    slot.addEventListener('touchstart', handleTouchStart, { passive: false });
-                    slot.addEventListener('touchmove', handleTouchMove, { passive: false });
-                    
-                    // 컨텍스트 메뉴 방지 (우클릭 방지)
-                    slot.addEventListener('contextmenu', function(e) {
+                    // 드래그 방지
+                    slot.addEventListener('dragstart', function(e) {
                         e.preventDefault();
                     });
                     
                     grid.appendChild(slot);
                 });
             });
-            
-            // 전역 이벤트 리스너들 제거 후 재등록
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.removeEventListener('mouseleave', handleMouseUp);
-            document.removeEventListener('touchend', handleTouchEnd);
-            
-            document.addEventListener('mouseup', handleMouseUp);
-            document.addEventListener('mouseleave', handleMouseUp); // 마우스가 문서를 벗어날 때도 처리
-            document.addEventListener('touchend', handleTouchEnd);
         }
 
         // 겹치는 시간 뷰 업데이트
@@ -824,7 +655,7 @@
                     const slot = document.createElement('div');
                     slot.className = 'overlap-slot';
                     
-                    // 이 시간에 가능한 멤버 수 계산
+                    // 가능한 멤버 수 계산
                     let availableCount = 0;
                     const availableMembers = [];
                     members.forEach(member => {
@@ -837,7 +668,7 @@
                     slot.textContent = availableCount > 0 ? availableCount : '';
                     slot.classList.add(`overlap-${availableCount}`);
                     
-                    // 툴팁 이벤트 추가 (가능한 멤버가 있을 때만)
+                    // 툴팁 이벤트
                     if (availableCount > 0) {
                         slot.style.cursor = 'pointer';
                         
@@ -848,26 +679,6 @@
                         slot.addEventListener('mouseleave', function() {
                             hideTooltip();
                         });
-                        
-                        slot.addEventListener('mousemove', function(e) {
-                            // 마우스 이동 시 툴팁 위치 업데이트
-                            if (tooltip.classList.contains('show')) {
-                                const rect = e.target.getBoundingClientRect();
-                                let left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
-                                let top = rect.top - tooltip.offsetHeight - 10;
-                                
-                                if (left < 10) left = 10;
-                                if (left + tooltip.offsetWidth > window.innerWidth - 10) {
-                                    left = window.innerWidth - tooltip.offsetWidth - 10;
-                                }
-                                if (top < 10) {
-                                    top = rect.bottom + 10;
-                                }
-                                
-                                tooltip.style.left = left + 'px';
-                                tooltip.style.top = top + 'px';
-                            }
-                        });
                     }
                     
                     overlapGrid.appendChild(slot);
@@ -876,22 +687,26 @@
         }
 
         // 멤버 선택 이벤트
-        document.querySelectorAll('.member-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                // 이전 선택 해제
-                document.querySelectorAll('.member-btn').forEach(b => b.classList.remove('active'));
-                
-                // 새로운 선택
-                this.classList.add('active');
-                currentMember = this.dataset.member;
-                document.getElementById('currentMember').textContent = currentMember;
-                
-                // 그리드 업데이트
-                createScheduleGrid();
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.member-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    console.log('멤버 선택:', this.dataset.member);
+                    
+                    // 이전 선택 해제
+                    document.querySelectorAll('.member-btn').forEach(b => b.classList.remove('active'));
+                    
+                    // 새로운 선택
+                    this.classList.add('active');
+                    currentMember = this.dataset.member;
+                    document.getElementById('currentMember').textContent = currentMember;
+                    
+                    // 그리드 업데이트
+                    createScheduleGrid();
+                });
             });
         });
 
-        // 현재 멤버 스케줄 초기화
+        // 스케줄 초기화
         function clearSchedule() {
             if (confirm(`${currentMember}님의 스케줄을 초기화하시겠습니까?`)) {
                 dateRange.forEach(date => {
@@ -903,11 +718,17 @@
                         scheduleData[currentMember][dateKey][hour] = false;
                     });
                 });
-                immediateSaveToServer();
                 createScheduleGrid();
                 updateOverlapView();
             }
         }
+
+        // 디버깅용
+        window.debugInfo = function() {
+            console.log('현재 멤버:', currentMember);
+            console.log('스케줄 데이터:', scheduleData);
+            console.log('마우스 상태:', { isMouseDown, isDragging, dragMode });
+        };
     </script>
 </body>
 </html>
