@@ -95,20 +95,21 @@
 
         /* 툴팁 스타일 */
         .tooltip {
-            position: fixed;
+            position: absolute;
             background: rgba(0, 0, 0, 0.9);
             color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.85em;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9em;
             z-index: 1000;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.2s ease;
-            min-width: 150px;
-            max-width: 250px;
+            width: max-content;
+            min-width: 120px;
+            max-width: 220px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            white-space: nowrap;
+            white-space: normal;
         }
 
         .tooltip.show {
@@ -138,14 +139,16 @@
         }
 
         .available-members li {
-            margin: 2px 0;
+            margin: 3px 0;
             padding: 2px 0;
+            font-size: 0.9em;
         }
 
         .available-members li:before {
             content: '✓ ';
             color: #4caf50;
             font-weight: bold;
+            margin-right: 5px;
         }
 
         .member-selector {
@@ -566,7 +569,7 @@
             }, 100);
         }
 
-        // 툴팁 표시 함수 (위치 수정)
+        // 툴팁 표시 함수 (여백 없이 정확한 크기)
         function showTooltip(e, availableMembers, dateKey, hour) {
             if (availableMembers.length === 0) {
                 hideTooltip();
@@ -575,22 +578,26 @@
             
             const memberList = availableMembers.map(member => `<li>${member}</li>`).join('');
             tooltipContent.innerHTML = `
-                <div style="margin-bottom: 4px; font-weight: bold;">${dateKey} ${hour}시</div>
+                <div style="margin-bottom: 4px; font-weight: bold; text-align: center; white-space: nowrap;">${dateKey} ${hour}시</div>
                 <ul class="available-members">${memberList}</ul>
             `;
             
-            // 먼저 툴팁을 보이게 해서 크기를 측정할 수 있도록
-            tooltip.style.visibility = 'hidden';
+            const rect = e.target.getBoundingClientRect();
+            
+            // 툴팁을 화면 밖에 임시로 표시해서 크기 측정
+            tooltip.style.left = '-9999px';
+            tooltip.style.top = '-9999px';
+            tooltip.style.opacity = '1';
             tooltip.classList.add('show');
             
-            const rect = e.target.getBoundingClientRect();
+            // 실제 크기 측정
             const tooltipRect = tooltip.getBoundingClientRect();
-            const tooltipWidth = tooltipRect.width || 200; // 기본값
-            const tooltipHeight = tooltipRect.height || 80; // 기본값
+            const tooltipWidth = tooltipRect.width;
+            const tooltipHeight = tooltipRect.height;
             
             // 슬롯 중앙을 기준으로 툴팁 위치 계산
             let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
-            let top = rect.top - tooltipHeight - 15; // 슬롯 위쪽으로 15px 간격
+            let top = rect.top - tooltipHeight - 15;
             
             // 화면 좌측 경계 확인
             if (left < 10) {
@@ -611,18 +618,21 @@
                 tooltip.classList.remove('bottom');
             }
             
-            // 스크롤 위치 고려
-            left += window.scrollX;
-            top += window.scrollY;
-            
+            // 최종 위치 설정
             tooltip.style.left = left + 'px';
             tooltip.style.top = top + 'px';
-            tooltip.style.visibility = 'visible';
+            tooltip.style.opacity = '0';
+            
+            // 애니메이션으로 나타나기
+            setTimeout(() => {
+                tooltip.style.opacity = '1';
+            }, 10);
         }
 
-        // 툴팁 숨기기 함수
+        // 툴팁 숨기기 함수 (opacity 초기화)
         function hideTooltip() {
             tooltip.classList.remove('show');
+            tooltip.style.opacity = '0';
         }
 
         // 간단한 마우스 이벤트 핸들러 (클릭 문제 해결)
