@@ -182,6 +182,7 @@
             position: relative;
             min-height: 35px;
             user-select: none;
+            touch-action: none;
         }
 
         .time-slot:hover {
@@ -325,9 +326,10 @@
         let currentMember = '김지훈';
         let scheduleData = {};
         
-        // 드래그 관련 변수
+        // 개선된 드래그 관련 변수
         let isDragging = false;
         let dragMode = null;
+        let lastProcessedCell = null;
 
         // Socket.IO 연결
         let socket = null;
@@ -420,6 +422,123 @@
             }
         }
 
+        // 슬롯 토글 함수
+        function toggleSlot(slot, dateKey, hour) {
+            const isChecked = slot.classList.contains('available');
+            if (!scheduleData[currentMember][dateKey]) {
+                scheduleData[currentMember][dateKey] = {};
+            }
+            scheduleData[currentMember][dateKey][hour] = !isChecked;
+            slot.classList.toggle('available', !isChecked);
+            saveToServer();
+            updateOverlapView();
+        }
+
+        // 마우스 다운 핸들러
+        function handleMouseDown(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            isDragging = true;
+            const slot = e.target;
+            const dateKey = slot.dataset.date;
+            const hour = parseInt(slot.dataset.hour);
+            
+            const isChecked = slot.classList.contains('available');
+            dragMode = isChecked ? 'deselect' : 'select';
+            lastProcessedCell = `${dateKey}-${hour}`;
+            
+            // 현재 슬롯 토글
+            toggleSlot(slot, dateKey, hour);
+        }
+
+        // 마우스 엔터 핸들러 (개선됨)
+        function handleMouseEnter(e) {
+            if (!isDragging) return;
+            
+            const slot = e.target;
+            if (!slot.classList.contains('time-slot')) return;
+            
+            const dateKey = slot.dataset.date;
+            const hour = parseInt(slot.dataset.hour);
+            const cellKey = `${dateKey}-${hour}`;
+            
+            // 같은 셀을 중복 처리하지 않음
+            if (lastProcessedCell === cellKey) return;
+            lastProcessedCell = cellKey;
+            
+            const isChecked = slot.classList.contains('available');
+            
+            if (dragMode === 'select' && !isChecked) {
+                toggleSlot(slot, dateKey, hour);
+            } else if (dragMode === 'deselect' && isChecked) {
+                toggleSlot(slot, dateKey, hour);
+            }
+        }
+
+        // 마우스 업 핸들러
+        function handleMouseUp(e) {
+            if (isDragging) {
+                isDragging = false;
+                dragMode = null;
+                lastProcessedCell = null;
+            }
+        }
+
+        // 터치 시작 핸들러 (모바일 지원)
+        function handleTouchStart(e) {
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const slot = e.target;
+            
+            isDragging = true;
+            const dateKey = slot.dataset.date;
+            const hour = parseInt(slot.dataset.hour);
+            
+            const isChecked = slot.classList.contains('available');
+            dragMode = isChecked ? 'deselect' : 'select';
+            lastProcessedCell = `${dateKey}-${hour}`;
+            
+            toggleSlot(slot, dateKey, hour);
+        }
+
+        // 터치 이동 핸들러
+        function handleTouchMove(e) {
+            e.preventDefault();
+            
+            if (!isDragging) return;
+            
+            const touch = e.touches[0];
+            const element = document.elementFromPoint(touch.clientX, touch.clientY);
+            
+            if (element && element.classList.contains('time-slot')) {
+                const dateKey = element.dataset.date;
+                const hour = parseInt(element.dataset.hour);
+                const cellKey = `${dateKey}-${hour}`;
+                
+                if (lastProcessedCell === cellKey) return;
+                lastProcessedCell = cellKey;
+                
+                const isChecked = element.classList.contains('available');
+                
+                if (dragMode === 'select' && !isChecked) {
+                    toggleSlot(element, dateKey, hour);
+                } else if (dragMode === 'deselect' && isChecked) {
+                    toggleSlot(element, dateKey, hour);
+                }
+            }
+        }
+
+        // 터치 종료 핸들러
+        function handleTouchEnd(e) {
+            if (isDragging) {
+                isDragging = false;
+                dragMode = null;
+                lastProcessedCell = null;
+            }
+        }
+
         // 스케줄 그리드 생성
         function createScheduleGrid() {
             const grid = document.getElementById('scheduleGrid');
@@ -459,67 +578,38 @@
                     }
                     
                     // 클릭 이벤트
-                    slot.addEventListener('click', function() {
-                        const isChecked = slot.classList.contains('available');
-                        if (!scheduleData[currentMember][dateKey]) {
-                            scheduleData[currentMember][dateKey] = {};
+                    slot.addEventListener('click', function(e) {
+                        if (!isDragging) {  // 드래그 중이 아닐 때만 클릭 처리
+                            toggleSlot(slot, dateKey, hour);
                         }
-                        scheduleData[currentMember][dateKey][hour] = !isChecked;
-                        slot.classList.toggle('available', !isChecked);
-                        saveToServer();
-                        updateOverlapView();
                     });
                     
-                    // 드래그 시작
-                    slot.addEventListener('mousedown', function(e) {
+                    // 마우스 이벤트들
+                    slot.addEventListener('mousedown', handleMouseDown);
+                    slot.addEventListener('mouseenter', handleMouseEnter);
+                    slot.addEventListener('mouseover', handleMouseEnter); // 추가: mouseover도 처리
+                    
+                    // 터치 이벤트 추가 (모바일 지원)
+                    slot.addEventListener('touchstart', handleTouchStart, { passive: false });
+                    slot.addEventListener('touchmove', handleTouchMove, { passive: false });
+                    
+                    // 컨텍스트 메뉴 방지 (우클릭 방지)
+                    slot.addEventListener('contextmenu', function(e) {
                         e.preventDefault();
-                        isDragging = true;
-                        const isChecked = slot.classList.contains('available');
-                        dragMode = isChecked ? 'deselect' : 'select';
-                        
-                        // 현재 슬롯 토글
-                        if (!scheduleData[currentMember][dateKey]) {
-                            scheduleData[currentMember][dateKey] = {};
-                        }
-                        scheduleData[currentMember][dateKey][hour] = !isChecked;
-                        slot.classList.toggle('available', !isChecked);
-                        saveToServer();
-                        updateOverlapView();
-                    });
-                    
-                    // 드래그 중 호버
-                    slot.addEventListener('mouseenter', function() {
-                        if (isDragging) {
-                            const isChecked = slot.classList.contains('available');
-                            if (dragMode === 'select' && !isChecked) {
-                                if (!scheduleData[currentMember][dateKey]) {
-                                    scheduleData[currentMember][dateKey] = {};
-                                }
-                                scheduleData[currentMember][dateKey][hour] = true;
-                                slot.classList.add('available');
-                                saveToServer();
-                                updateOverlapView();
-                            } else if (dragMode === 'deselect' && isChecked) {
-                                if (!scheduleData[currentMember][dateKey]) {
-                                    scheduleData[currentMember][dateKey] = {};
-                                }
-                                scheduleData[currentMember][dateKey][hour] = false;
-                                slot.classList.remove('available');
-                                saveToServer();
-                                updateOverlapView();
-                            }
-                        }
                     });
                     
                     grid.appendChild(slot);
                 });
             });
             
-            // 드래그 종료 이벤트
-            document.addEventListener('mouseup', function() {
-                isDragging = false;
-                dragMode = null;
-            });
+            // 전역 이벤트 리스너들 제거 후 재등록
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mouseleave', handleMouseUp);
+            document.removeEventListener('touchend', handleTouchEnd);
+            
+            document.addEventListener('mouseup', handleMouseUp);
+            document.addEventListener('mouseleave', handleMouseUp); // 마우스가 문서를 벗어날 때도 처리
+            document.addEventListener('touchend', handleTouchEnd);
         }
 
         // 겹치는 시간 뷰 업데이트
