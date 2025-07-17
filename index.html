@@ -95,7 +95,7 @@
 
         /* 툴팁 스타일 */
         .tooltip {
-            position: absolute;
+            position: fixed;
             background: rgba(0, 0, 0, 0.9);
             color: white;
             padding: 8px 12px;
@@ -105,7 +105,8 @@
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.2s ease;
-            max-width: 200px;
+            min-width: 150px;
+            max-width: 250px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             white-space: nowrap;
         }
@@ -117,11 +118,17 @@
         .tooltip::before {
             content: '';
             position: absolute;
-            top: 100%;
             left: 50%;
             transform: translateX(-50%);
             border: 5px solid transparent;
             border-top-color: rgba(0, 0, 0, 0.9);
+            top: 100%;
+        }
+
+        .tooltip.bottom::before {
+            top: -10px;
+            border-top-color: transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
         }
 
         .available-members {
@@ -559,7 +566,7 @@
             }, 100);
         }
 
-        // 툴팁 표시 함수
+        // 툴팁 표시 함수 (위치 수정)
         function showTooltip(e, availableMembers, dateKey, hour) {
             if (availableMembers.length === 0) {
                 hideTooltip();
@@ -572,21 +579,45 @@
                 <ul class="available-members">${memberList}</ul>
             `;
             
-            const rect = e.target.getBoundingClientRect();
-            let left = rect.left + (rect.width / 2) - 100;
-            let top = rect.top - 80;
+            // 먼저 툴팁을 보이게 해서 크기를 측정할 수 있도록
+            tooltip.style.visibility = 'hidden';
+            tooltip.classList.add('show');
             
-            if (left < 10) left = 10;
-            if (left + 200 > window.innerWidth - 10) {
-                left = window.innerWidth - 210;
+            const rect = e.target.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const tooltipWidth = tooltipRect.width || 200; // 기본값
+            const tooltipHeight = tooltipRect.height || 80; // 기본값
+            
+            // 슬롯 중앙을 기준으로 툴팁 위치 계산
+            let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+            let top = rect.top - tooltipHeight - 15; // 슬롯 위쪽으로 15px 간격
+            
+            // 화면 좌측 경계 확인
+            if (left < 10) {
+                left = 10;
             }
+            
+            // 화면 우측 경계 확인
+            if (left + tooltipWidth > window.innerWidth - 10) {
+                left = window.innerWidth - tooltipWidth - 10;
+            }
+            
+            // 화면 상단 경계 확인
             if (top < 10) {
-                top = rect.bottom + 10;
+                // 위쪽에 공간이 없으면 슬롯 아래쪽에 표시
+                top = rect.bottom + 15;
+                tooltip.classList.add('bottom');
+            } else {
+                tooltip.classList.remove('bottom');
             }
+            
+            // 스크롤 위치 고려
+            left += window.scrollX;
+            top += window.scrollY;
             
             tooltip.style.left = left + 'px';
             tooltip.style.top = top + 'px';
-            tooltip.classList.add('show');
+            tooltip.style.visibility = 'visible';
         }
 
         // 툴팁 숨기기 함수
@@ -594,9 +625,9 @@
             tooltip.classList.remove('show');
         }
 
-        // 원본 마우스 이벤트 핸들러 (수정됨)
+        // 간단한 마우스 이벤트 핸들러 (클릭 문제 해결)
         function handleMouseDown(e) {
-            e.preventDefault();
+            // preventDefault 제거로 클릭 동작 보장
             console.log('=== 마우스 DOWN ===');
             
             isDragging = false;
@@ -605,7 +636,8 @@
         }
 
         function handleMouseMove(e) {
-            if (e.buttons === 1 && !dragStarted) { // 마우스 버튼이 눌린 상태에서 움직임
+            // 마우스 버튼이 눌린 상태에서만 드래그 시작
+            if (e.buttons === 1 && !dragStarted) {
                 console.log('=== 드래그 시작 ===');
                 isDragging = true;
                 dragStarted = true;
@@ -642,13 +674,10 @@
             }
         }
 
-        function handleMouseUp(e) {
-            console.log('=== 마우스 UP ===');
-            console.log('드래그 상태:', isDragging, '드래그 시작됨:', dragStarted);
-            
+        function handleClick(e) {
+            // 드래그가 시작되지 않았을 때만 클릭으로 처리
             if (!dragStarted) {
-                // 드래그하지 않았다면 클릭으로 처리
-                console.log('=== 클릭으로 처리 ===');
+                console.log('=== 클릭 처리 ===');
                 const slot = e.target;
                 if (slot && slot.classList.contains('time-slot')) {
                     const dateKey = slot.dataset.date;
@@ -656,20 +685,27 @@
                     console.log('클릭한 셀:', dateKey, hour);
                     toggleSlot(slot, dateKey, hour, true);
                 }
-            } else {
+            }
+        }
+
+        function handleMouseUp(e) {
+            console.log('=== 마우스 UP ===');
+            console.log('드래그 상태:', isDragging, '드래그 시작됨:', dragStarted);
+            
+            if (dragStarted && pendingSave) {
                 console.log('=== 드래그 완료 ===');
-                if (pendingSave) {
-                    if (saveTimeout) {
-                        clearTimeout(saveTimeout);
-                    }
-                    immediateSaveToServer();
+                if (saveTimeout) {
+                    clearTimeout(saveTimeout);
                 }
+                immediateSaveToServer();
             }
             
-            // 상태 초기화
-            isDragging = false;
-            dragStarted = false;
-            dragMode = null;
+            // 상태 초기화는 약간 지연시켜서 클릭 이벤트가 먼저 처리되도록
+            setTimeout(() => {
+                isDragging = false;
+                dragStarted = false;
+                dragMode = null;
+            }, 10);
         }
 
         // 스케줄 그리드 생성
@@ -711,11 +747,12 @@
                         slot.classList.add('available');
                     }
                     
-                    // 이벤트 리스너 등록 (원본 방식)
+                    // 이벤트 리스너 등록 (클릭 이벤트 추가)
                     slot.addEventListener('mousedown', handleMouseDown);
                     slot.addEventListener('mousemove', handleMouseMove);
                     slot.addEventListener('mouseenter', handleMouseEnter);
                     slot.addEventListener('mouseup', handleMouseUp);
+                    slot.addEventListener('click', handleClick); // 클릭 이벤트 추가
                     
                     // 우클릭 방지
                     slot.addEventListener('contextmenu', function(e) {
