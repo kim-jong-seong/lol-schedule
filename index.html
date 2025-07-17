@@ -91,6 +91,57 @@
         .overlap-2 { background: white; color: #6c757d; }
         .overlap-1 { background: white; color: #6c757d; }
 
+        /* 툴팁 스타일 */
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            max-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .tooltip.show {
+            opacity: 1;
+        }
+
+        .tooltip::before {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .available-members {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .available-members li {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+
+        .available-members li:before {
+            content: '✓ ';
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .overlap-slot {
+            position: relative;
+        }
+
         .member-selector {
             padding: 20px;
             background: white;
@@ -251,7 +302,7 @@
 
         <div class="schedule-container">
             <div class="overlap-view">
-                <div class="overlap-title">⏰ 팀원 겹치는 시간</div>
+                <div class="overlap-title">⏰ 팀원 겹치는 시간 (마우스를 올려보세요)</div>
                 <div class="overlap-grid" id="overlapGrid">
                     <!-- 겹치는 시간 표시 -->
                 </div>
@@ -286,6 +337,11 @@
                 <button class="btn btn-secondary" onclick="clearSchedule()">초기화</button>
             </div>
         </div>
+    </div>
+
+    <!-- 툴팁 요소 -->
+    <div id="tooltip" class="tooltip">
+        <div id="tooltipContent"></div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
@@ -334,11 +390,19 @@
         let pendingSave = false; // 저장 대기 상태
         let overlapUpdateTimeout = null; // UI 업데이트 쓰로틀링용
 
+        // 툴팁 관련 변수
+        let tooltip = null;
+        let tooltipContent = null;
+
         // Socket.IO 연결
         let socket = null;
         
         // 페이지 로드 후 Socket.IO 초기화
         window.addEventListener('load', async function() {
+            // 툴팁 요소 초기화
+            tooltip = document.getElementById('tooltip');
+            tooltipContent = document.getElementById('tooltipContent');
+            
             try {
                 socket = io();
                 console.log('Socket.IO 연결 시도');
@@ -372,22 +436,23 @@
         // 최적화된 서버 저장 함수
         async function saveToServer() {
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5초 타임아웃
+                // 간단한 타임아웃 처리로 변경 (AbortController 대신)
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timeout')), 5000);
+                });
                 
-                await fetch('/api/schedule', {
+                const fetchPromise = fetch('/api/schedule', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(scheduleData),
-                    signal: controller.signal
+                    body: JSON.stringify(scheduleData)
                 });
                 
-                clearTimeout(timeoutId);
+                await Promise.race([fetchPromise, timeoutPromise]);
                 console.log('서버에 저장됨');
             } catch (error) {
-                if (error.name === 'AbortError') {
+                if (error.message === 'Request timeout') {
                     console.log('저장 시간 초과');
                 } else {
                     console.log('저장 실패:', error);
@@ -492,6 +557,45 @@
             overlapUpdateTimeout = setTimeout(() => {
                 updateOverlapView();
             }, 100); // 100ms 디바운싱
+        }
+
+        // 툴팁 표시 함수
+        function showTooltip(e, availableMembers, dateKey, hour) {
+            if (availableMembers.length === 0) {
+                hideTooltip();
+                return;
+            }
+            
+            const memberList = availableMembers.map(member => `<li>${member}</li>`).join('');
+            tooltipContent.innerHTML = `
+                <div style="margin-bottom: 4px; font-weight: bold;">${dateKey} ${hour}시</div>
+                <ul class="available-members">${memberList}</ul>
+            `;
+            
+            // 툴팁 위치 계산
+            const rect = e.target.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            
+            let left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
+            let top = rect.top - tooltip.offsetHeight - 10;
+            
+            // 화면 경계 체크
+            if (left < 10) left = 10;
+            if (left + tooltip.offsetWidth > window.innerWidth - 10) {
+                left = window.innerWidth - tooltip.offsetWidth - 10;
+            }
+            if (top < 10) {
+                top = rect.bottom + 10;
+            }
+            
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+            tooltip.classList.add('show');
+        }
+
+        // 툴팁 숨기기 함수
+        function hideTooltip() {
+            tooltip.classList.remove('show');
         }
 
         // 마우스 다운 핸들러 (최적화)
@@ -722,14 +826,49 @@
                     
                     // 이 시간에 가능한 멤버 수 계산
                     let availableCount = 0;
+                    const availableMembers = [];
                     members.forEach(member => {
                         if (scheduleData[member] && scheduleData[member][dateKey] && scheduleData[member][dateKey][hour]) {
                             availableCount++;
+                            availableMembers.push(member);
                         }
                     });
                     
                     slot.textContent = availableCount > 0 ? availableCount : '';
                     slot.classList.add(`overlap-${availableCount}`);
+                    
+                    // 툴팁 이벤트 추가 (가능한 멤버가 있을 때만)
+                    if (availableCount > 0) {
+                        slot.style.cursor = 'pointer';
+                        
+                        slot.addEventListener('mouseenter', function(e) {
+                            showTooltip(e, availableMembers, dateKey, hour);
+                        });
+                        
+                        slot.addEventListener('mouseleave', function() {
+                            hideTooltip();
+                        });
+                        
+                        slot.addEventListener('mousemove', function(e) {
+                            // 마우스 이동 시 툴팁 위치 업데이트
+                            if (tooltip.classList.contains('show')) {
+                                const rect = e.target.getBoundingClientRect();
+                                let left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
+                                let top = rect.top - tooltip.offsetHeight - 10;
+                                
+                                if (left < 10) left = 10;
+                                if (left + tooltip.offsetWidth > window.innerWidth - 10) {
+                                    left = window.innerWidth - tooltip.offsetWidth - 10;
+                                }
+                                if (top < 10) {
+                                    top = rect.bottom + 10;
+                                }
+                                
+                                tooltip.style.left = left + 'px';
+                                tooltip.style.top = top + 'px';
+                            }
+                        });
+                    }
                     
                     overlapGrid.appendChild(slot);
                 });
