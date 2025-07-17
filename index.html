@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoL 팀 스케줄 관리</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .schedule-container {
+            padding: 30px;
+        }
+
+        .overlap-view {
+            margin-bottom: 40px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .overlap-title {
+            font-size: 1.2em;
+            color: #495057;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .overlap-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(24, 1fr);
+            gap: 1px;
+            background: #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+            overflow-x: auto;
+        }
+
+        .overlap-slot {
+            background: white;
+            padding: 8px;
+            text-align: center;
+            min-height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .overlap-5 { background: #28a745; color: white; }
+        .overlap-4 { background: white; color: #6c757d; }
+        .overlap-3 { background: white; color: #6c757d; }
+        .overlap-2 { background: white; color: #6c757d; }
+        .overlap-1 { background: white; color: #6c757d; }
+
+        .member-selector {
+            padding: 20px;
+            background: white;
+            margin-bottom: 20px;
+        }
+
+        .member-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .member-btn {
+            padding: 10px 20px;
+            border: 2px solid #dee2e6;
+            background: white;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            min-width: 100px;
+        }
+
+        .member-btn:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .member-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .current-member {
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            color: #495057;
+        }
+
+        .schedule-guide {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            color: #6c757d;
+            background: #f8f9ff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid #e3f2fd;
+        }
+
+        .schedule-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(24, 1fr);
+            gap: 1px;
+            background: #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+            overflow-x: auto;
+        }
+
+        .day-header {
+            background: #6c757d;
+            color: white;
+            padding: 10px 5px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.8em;
+            white-space: nowrap;
+        }
+
+        .time-label {
+            background: #6c757d;
+            color: white;
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .time-slot {
+            background: white;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            min-height: 35px;
+            user-select: none;
+        }
+
+        .time-slot:hover {
+            background: #f8f9ff;
+        }
+
+        .time-slot.available {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .time-slot.available:hover {
+            background: #c3e6cb;
+        }
+
+        .actions {
+            padding: 20px;
+            text-align: center;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            margin: 0 10px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            .schedule-grid {
+                font-size: 0.8em;
+            }
+            
+            .member-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .member-btn {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 강감찬 팀 스케줄</h1>
+            <p>연습진행이 가능한 시간을 표시해주세요</p>
+        </div>
+
+        <div class="schedule-container">
+            <div class="overlap-view">
+                <div class="overlap-title">⏰ 팀원 겹치는 시간</div>
+                <div class="overlap-grid" id="overlapGrid">
+                    <!-- 겹치는 시간 표시 -->
+                </div>
+            </div>
+
+            <div class="member-selector">
+                <div class="member-buttons">
+                    <button class="member-btn active" data-member="김지훈">김지훈</button>
+                    <button class="member-btn" data-member="김승진">김승진</button>
+                    <button class="member-btn" data-member="이성규">이성규</button>
+                    <button class="member-btn" data-member="조영인">조영인</button>
+                    <button class="member-btn" data-member="김종성">김종성</button>
+                </div>
+            </div>
+
+            <div class="current-member">
+                <span id="currentMember">김지훈</span>님의 스케줄
+            </div>
+
+            <div class="schedule-guide">
+                💡 클릭하거나 드래그하여 가능한 시간을 선택하세요
+            </div>
+
+            <div class="schedule-grid" id="scheduleGrid">
+                <!-- 헤더 -->
+                <div class="day-header">일자/시간</div>
+                
+                <!-- 시간대별 그리드 -->
+            </div>
+
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="clearSchedule()">초기화</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
+    <script>
+        const members = ['김지훈', '김승진', '이성규', '조영인', '김종성'];
+        
+        // 날짜 계산 함수
+        function getDateRange() {
+            const today = new Date();
+            const endDate = new Date(2025, 7, 6); // 8월 6일 (월은 0부터 시작)
+            const dates = [];
+            
+            const current = new Date(today);
+            while (current <= endDate && dates.length < 7) {
+                dates.push(new Date(current));
+                current.setDate(current.getDate() + 1);
+            }
+            
+            return dates;
+        }
+        
+        // 날짜를 문자열로 변환
+        function formatDate(date) {
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            return `${month}/${day}`;
+        }
+        
+        // 요일을 가져오기
+        function getDayOfWeek(date) {
+            const days = ['일', '월', '화', '수', '목', '금', '토'];
+            return days[date.getDay()];
+        }
+        
+        const dateRange = getDateRange();
+        const hours = Array.from({length: 24}, (_, i) => i + 1);
+        
+        let currentMember = '김지훈';
+        let scheduleData = {};
+        
+        // 드래그 관련 변수
+        let isDragging = false;
+        let dragMode = null;
+
+        // Socket.IO 연결
+        let socket = null;
+        
+        // 페이지 로드 후 Socket.IO 초기화
+        window.addEventListener('load', async function() {
+            try {
+                socket = io();
+                console.log('Socket.IO 연결 시도');
+                
+                // 연결 이벤트
+                socket.on('connect', () => {
+                    console.log('✅ Socket.IO 연결됨! ID:', socket.id);
+                });
+                
+                socket.on('disconnect', () => {
+                    console.log('❌ Socket.IO 연결 해제됨');
+                });
+                
+                // 실시간 업데이트 수신
+                socket.on('scheduleUpdated', (newScheduleData) => {
+                    scheduleData = newScheduleData;
+                    createScheduleGrid();
+                    updateOverlapView();
+                    console.log('🔄 실시간으로 스케줄이 업데이트되었습니다!');
+                });
+                
+            } catch (error) {
+                console.log('❌ Socket.IO 연결 실패:', error);
+            }
+            
+            await loadData();
+            createScheduleGrid();
+            updateOverlapView();
+        });
+
+        // 서버에 즉시 저장
+        async function saveToServer() {
+            try {
+                await fetch('/api/schedule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(scheduleData)
+                });
+                console.log('서버에 저장됨');
+            } catch (error) {
+                console.log('저장 실패:', error);
+            }
+        }
+
+        // 서버에서 데이터 로드
+        async function loadFromServer() {
+            try {
+                const response = await fetch('/api/schedule');
+                if (response.ok) {
+                    const data = await response.json();
+                    scheduleData = data;
+                    console.log('서버에서 데이터 로드됨');
+                    return true;
+                }
+            } catch (error) {
+                console.log('로드 실패:', error);
+            }
+            return false;
+        }
+
+        // 초기 데이터 생성
+        function createInitialData() {
+            scheduleData = {};
+            members.forEach(member => {
+                scheduleData[member] = {};
+                dateRange.forEach(date => {
+                    const dateKey = formatDate(date);
+                    scheduleData[member][dateKey] = {};
+                    hours.forEach(hour => {
+                        scheduleData[member][dateKey][hour] = false;
+                    });
+                });
+            });
+        }
+
+        // 데이터 로드
+        async function loadData() {
+            const loaded = await loadFromServer();
+            if (!loaded) {
+                createInitialData();
+                await saveToServer();
+            }
+        }
+
+        // 스케줄 그리드 생성
+        function createScheduleGrid() {
+            const grid = document.getElementById('scheduleGrid');
+            
+            // 기존 시간 슬롯들 제거 (헤더는 유지)
+            const existingSlots = grid.querySelectorAll('.time-slot, .time-label:not(:first-child), .day-header:not(:first-child)');
+            existingSlots.forEach(slot => slot.remove());
+            
+            // 시간 헤더들 추가
+            hours.forEach(hour => {
+                const timeHeader = document.createElement('div');
+                timeHeader.className = 'time-label';
+                timeHeader.textContent = `${hour}`;
+                grid.appendChild(timeHeader);
+            });
+            
+            // 각 날짜별 행 생성
+            dateRange.forEach(date => {
+                const dateKey = formatDate(date);
+                
+                // 날짜 라벨 (요일 포함)
+                const dayLabel = document.createElement('div');
+                dayLabel.className = 'day-header';
+                dayLabel.textContent = `${dateKey}(${getDayOfWeek(date)})`;
+                grid.appendChild(dayLabel);
+                
+                // 각 시간별 슬롯
+                hours.forEach(hour => {
+                    const slot = document.createElement('div');
+                    slot.className = 'time-slot';
+                    slot.dataset.date = dateKey;
+                    slot.dataset.hour = hour;
+                    
+                    // 현재 상태에 따라 스타일 설정
+                    if (scheduleData[currentMember] && scheduleData[currentMember][dateKey] && scheduleData[currentMember][dateKey][hour]) {
+                        slot.classList.add('available');
+                    }
+                    
+                    // 클릭 이벤트
+                    slot.addEventListener('click', function() {
+                        const isChecked = slot.classList.contains('available');
+                        if (!scheduleData[currentMember][dateKey]) {
+                            scheduleData[currentMember][dateKey] = {};
+                        }
+                        scheduleData[currentMember][dateKey][hour] = !isChecked;
+                        slot.classList.toggle('available', !isChecked);
+                        saveToServer();
+                        updateOverlapView();
+                    });
+                    
+                    // 드래그 시작
+                    slot.addEventListener('mousedown', function(e) {
+                        e.preventDefault();
+                        isDragging = true;
+                        const isChecked = slot.classList.contains('available');
+                        dragMode = isChecked ? 'deselect' : 'select';
+                        
+                        // 현재 슬롯 토글
+                        if (!scheduleData[currentMember][dateKey]) {
+                            scheduleData[currentMember][dateKey] = {};
+                        }
+                        scheduleData[currentMember][dateKey][hour] = !isChecked;
+                        slot.classList.toggle('available', !isChecked);
+                        saveToServer();
+                        updateOverlapView();
+                    });
+                    
+                    // 드래그 중 호버
+                    slot.addEventListener('mouseenter', function() {
+                        if (isDragging) {
+                            const isChecked = slot.classList.contains('available');
+                            if (dragMode === 'select' && !isChecked) {
+                                if (!scheduleData[currentMember][dateKey]) {
+                                    scheduleData[currentMember][dateKey] = {};
+                                }
+                                scheduleData[currentMember][dateKey][hour] = true;
+                                slot.classList.add('available');
+                                saveToServer();
+                                updateOverlapView();
+                            } else if (dragMode === 'deselect' && isChecked) {
+                                if (!scheduleData[currentMember][dateKey]) {
+                                    scheduleData[currentMember][dateKey] = {};
+                                }
+                                scheduleData[currentMember][dateKey][hour] = false;
+                                slot.classList.remove('available');
+                                saveToServer();
+                                updateOverlapView();
+                            }
+                        }
+                    });
+                    
+                    grid.appendChild(slot);
+                });
+            });
+            
+            // 드래그 종료 이벤트
+            document.addEventListener('mouseup', function() {
+                isDragging = false;
+                dragMode = null;
+            });
+        }
+
+        // 겹치는 시간 뷰 업데이트
+        function updateOverlapView() {
+            const overlapGrid = document.getElementById('overlapGrid');
+            overlapGrid.innerHTML = '';
+            
+            // 시간 라벨
+            const timeLabel = document.createElement('div');
+            timeLabel.className = 'day-header';
+            timeLabel.textContent = '일자/시간';
+            overlapGrid.appendChild(timeLabel);
+            
+            // 시간 헤더들
+            hours.forEach(hour => {
+                const timeHeader = document.createElement('div');
+                timeHeader.className = 'time-label';
+                timeHeader.textContent = `${hour}`;
+                overlapGrid.appendChild(timeHeader);
+            });
+            
+            // 각 날짜별 행
+            dateRange.forEach(date => {
+                const dateKey = formatDate(date);
+                
+                // 날짜 라벨
+                const dayLabel = document.createElement('div');
+                dayLabel.className = 'day-header';
+                dayLabel.textContent = `${dateKey}(${getDayOfWeek(date)})`;
+                overlapGrid.appendChild(dayLabel);
+                
+                hours.forEach(hour => {
+                    const slot = document.createElement('div');
+                    slot.className = 'overlap-slot';
+                    
+                    // 이 시간에 가능한 멤버 수 계산
+                    let availableCount = 0;
+                    members.forEach(member => {
+                        if (scheduleData[member] && scheduleData[member][dateKey] && scheduleData[member][dateKey][hour]) {
+                            availableCount++;
+                        }
+                    });
+                    
+                    slot.textContent = availableCount > 0 ? availableCount : '';
+                    slot.classList.add(`overlap-${availableCount}`);
+                    
+                    overlapGrid.appendChild(slot);
+                });
+            });
+        }
+
+        // 멤버 선택 이벤트
+        document.querySelectorAll('.member-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                // 이전 선택 해제
+                document.querySelectorAll('.member-btn').forEach(b => b.classList.remove('active'));
+                
+                // 새로운 선택
+                this.classList.add('active');
+                currentMember = this.dataset.member;
+                document.getElementById('currentMember').textContent = currentMember;
+                
+                // 그리드 업데이트
+                createScheduleGrid();
+            });
+        });
+
+        // 현재 멤버 스케줄 초기화
+        function clearSchedule() {
+            if (confirm(`${currentMember}님의 스케줄을 초기화하시겠습니까?`)) {
+                dateRange.forEach(date => {
+                    const dateKey = formatDate(date);
+                    if (!scheduleData[currentMember][dateKey]) {
+                        scheduleData[currentMember][dateKey] = {};
+                    }
+                    hours.forEach(hour => {
+                        scheduleData[currentMember][dateKey][hour] = false;
+                    });
+                });
+                saveToServer();
+                createScheduleGrid();
+                updateOverlapView();
+            }
+        }
+    </script>
+</body>
+</html>
